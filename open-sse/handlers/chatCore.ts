@@ -248,7 +248,10 @@ import {
   normalizeOpenAIToolFinishReasons,
   restoreNonStreamingToolNames,
 } from "./chatCore/passthroughToolNames.ts";
-import { createDisabledCompressionConfig, resolveCompressionSettings } from "./chatCore/compressionSettings.ts";
+import {
+  createDisabledCompressionConfig,
+  resolveCompressionSettings,
+} from "./chatCore/compressionSettings.ts";
 import type { EnforceDecision } from "@/lib/quota/types";
 import { isCompressionExcluded } from "../services/compression/exclusions.ts";
 import {
@@ -1823,7 +1826,11 @@ export async function handleChatCore({
     // engines (Caveman/RTK). Codex Desktop / Responses clients need this path even
     // when those engines are off, otherwise multi-turn image sessions hard-reject
     // at the budget check below (#8560).
-    if (reactiveContextCompactionEnabled && !nativeCodexPassthrough && estimatedTokens > threshold) {
+    if (
+      reactiveContextCompactionEnabled &&
+      !nativeCodexPassthrough &&
+      estimatedTokens > threshold
+    ) {
       log?.info?.(
         "CONTEXT",
         `Proactive compression triggered: ${estimatedTokens} tokens > ${threshold} threshold (${contextLimit} limit)`
@@ -1893,7 +1900,12 @@ export async function handleChatCore({
 
   // Last-resort compaction against the concrete input budget (not the 70% threshold).
   // Covers cases where the proactive pass was skipped or still left the request oversized (#8560).
-  if (reactiveContextCompactionEnabled && !nativeCodexPassthrough && finalEstimatedInputTokens >= finalContextLimit && body) {
+  if (
+    reactiveContextCompactionEnabled &&
+    !nativeCodexPassthrough &&
+    finalEstimatedInputTokens >= finalContextLimit &&
+    body
+  ) {
     const lastResortTarget = Math.max(1, finalContextLimit - toolsReserve - 1);
     const lastResortAdapter = adaptBodyForCompression(body as Record<string, unknown>);
     const lastResortResult = compressContext(lastResortAdapter.body, {
@@ -2761,7 +2773,18 @@ export async function handleChatCore({
               ? (extractSessionAffinityKey(body, clientRawRequest?.headers) ?? null)
               : null;
 
-          while (attempts < maxAttempts) {
+          // ── Antigravity BYOP 422 account-rotation state ─────────────────────
+          // A GCP_PROJECT_REQUIRED 422 is account-specific (that Google
+          // account lacks a GCP Project ID). Rotate to a sibling antigravity
+          // account instead of surfacing the error, so multi-account setups
+          // keep working without user action. Tracked separately from
+          // maxAttempts so non-BYOP antigravity failures never get a second
+          // shot (no double upstream calls).
+          const antigravityByopExcludedIds: string[] = [];
+          let antigravityByopRotationPending = false;
+
+          while (attempts < maxAttempts || antigravityByopRotationPending) {
+            antigravityByopRotationPending = false; // consumed per iteration
             trace("pre_executor", { attempt: attempts });
             updatePendingScope(pendingScope, {
               stage: "sending_to_provider",
@@ -2984,6 +3007,55 @@ export async function handleChatCore({
                 releaseAccountSemaphore();
                 attempts++;
                 continue;
+              }
+
+              // ── Antigravity BYOP 422 account rotation ───────────────────────
+              // GCP_PROJECT_REQUIRED (422, code gcp_project_required) means
+              // THIS Google account must Bring Its Own GCP Project. Mark the
+              // connection excluded (rateLimitedUntil, best-effort) and rotate
+              // to a sibling antigravity account so the request succeeds
+              // without user action. When no sibling exists (or all are BYOP),
+              // fall through: the error-state block excludes the connection
+              // and the actionable 422 is surfaced.
+              if (provider === "antigravity" && res.response.status === 422) {
+                const byopBody = await res.response
+                  .clone()
+                  .text()
+                  .catch(() => "");
+                if (byopBody.includes("gcp_project_required")) {
+                  const byopFailedId =
+                    executionConnectionId || credentials?.connectionId || connectionId;
+                  if (byopFailedId) {
+                    if (!antigravityByopExcludedIds.includes(String(byopFailedId))) {
+                      antigravityByopExcludedIds.push(String(byopFailedId));
+                    }
+                    try {
+                      const { setConnectionRateLimitUntil } = await import("@/lib/db/providers");
+                      setConnectionRateLimitUntil(
+                        String(byopFailedId),
+                        Date.now() + COOLDOWN_MS.gcpProjectRequired
+                      );
+                    } catch {
+                      // best-effort — never break the rotation path
+                    }
+                  }
+                  const byopNextCreds = await getProviderCredentials(
+                    "antigravity",
+                    null,
+                    null,
+                    modelToCall || model || requestedModel || null,
+                    { excludeConnectionIds: [...antigravityByopExcludedIds] }
+                  ).catch(() => null);
+                  if (byopNextCreds && !byopNextCreds.allRateLimited) {
+                    log?.warn?.(
+                      "ANTIGRAVITY_BYOP_ROTATION",
+                      `BYOP 422 on connection ${String(byopFailedId).slice(0, 8)} → rotating to ${String(byopNextCreds.connectionId).slice(0, 8)}`
+                    );
+                    Object.assign(credentials, byopNextCreds);
+                    antigravityByopRotationPending = true;
+                    continue;
+                  }
+                }
               }
 
               // For streaming: release the semaphore when the client drains or cancels the stream.
@@ -3881,6 +3953,27 @@ export async function handleChatCore({
           console.warn(
             `[provider] Node ${errorConnectionId} project routing error (${statusCode}) — not banning`
           );
+        } else if (errorType === PROVIDER_ERROR_TYPES.GCP_PROJECT_REQUIRED) {
+          // Antigravity BYOP: the account must Bring Its Own GCP Project.
+          // Account-specific and fixable by entering a Project ID — never a
+          // model lockout, never a ban. Exclude the connection for the
+          // cooldown window so selection prefers sibling accounts; the 422
+          // body carries the actionable message when no sibling is available.
+          const byopCooldownMs = COOLDOWN_MS.gcpProjectRequired ?? 24 * 60 * 60 * 1000;
+          await updateProviderConnection(errorConnectionId, {
+            lastErrorType: errorType,
+            lastError: message,
+            errorCode: statusCode,
+          });
+          try {
+            const { setConnectionRateLimitUntil } = await import("@/lib/db/providers");
+            setConnectionRateLimitUntil(errorConnectionId, Date.now() + byopCooldownMs);
+          } catch {
+            // best-effort — never break the error path
+          }
+          console.warn(
+            `[provider] Node ${errorConnectionId} GCP project required (${statusCode}) — excluded for ${Math.ceil(byopCooldownMs / 1000)}s, routing to other accounts (enter a Project ID to restore)`
+          );
         } else if (errorType === PROVIDER_ERROR_TYPES.MODEL_NOT_FOUND) {
           // 404 — model/endpoint does not exist upstream. Lock the model so the
           // retry/backoff loop stops hammering the dead endpoint (which would
@@ -4349,7 +4442,11 @@ export async function handleChatCore({
           }
         : responseBody
     );
-    sanitizeUsagePayloadForRequest(responseBody, finalBody || translatedBody || body, responsePayloadFormat);
+    sanitizeUsagePayloadForRequest(
+      responseBody,
+      finalBody || translatedBody || body,
+      responsePayloadFormat
+    );
     effectiveServiceTier = resolveReportedServiceTier(responseBody) ?? effectiveServiceTier;
     // Notify success - caller can clear error status if needed
     if (onRequestSuccess) {
@@ -4494,9 +4591,14 @@ export async function handleChatCore({
     // #8331: keep the client-visible metering fields real everywhere except Claude-Code-compatible
     // providers, where Claude Code's own context accounting relies on the buffered number — see
     // clientUsageBuffer.ts module docstring.
-    applyClientUsageBuffer(translatedResponse, finalBody || translatedBody || body, clientResponseFormat, {
-      preserveContextBudgetInVisibleUsage: isClaudeCodeCompatible,
-    });
+    applyClientUsageBuffer(
+      translatedResponse,
+      finalBody || translatedBody || body,
+      clientResponseFormat,
+      {
+        preserveContextBudgetInVisibleUsage: isClaudeCodeCompatible,
+      }
+    );
 
     if (memoryOwnerId && memorySettings?.enabled && memorySettings.maxTokens > 0) {
       const requestMemoryText = extractMemoryTextFromRequestBody(body as Record<string, unknown>);

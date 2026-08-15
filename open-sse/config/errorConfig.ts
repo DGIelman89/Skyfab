@@ -77,6 +77,10 @@ export const COOLDOWN_MS = {
   rateLimit: 2 * 60 * 1000,
   serviceUnavailable: 2 * 1000,
   authExpired: 2 * 60 * 1000,
+  // Antigravity BYOP (GCP_PROJECT_REQUIRED): nothing changes on the account
+  // until the operator enters a Project ID, so keep the connection excluded
+  // from selection for a long window (mirrors the geo-blocked treatment).
+  gcpProjectRequired: 24 * 60 * 60 * 1000,
 };
 
 /**
