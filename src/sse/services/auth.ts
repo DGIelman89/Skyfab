@@ -26,7 +26,6 @@ import {
   getQuotaWindowStatus,
   isQuotaExhaustedForRequest,
 } from "@/domain/quotaCache";
-import { getQuotaScopeLabelForProvider } from "@omniroute/open-sse/services/antigravityQuotaFamily.ts";
 import { getCreditsMode } from "@omniroute/open-sse/services/antigravityCredits.ts";
 import { preferAntigravityConnectionsWithStoredProject } from "@omniroute/open-sse/services/antigravityProjectPersistence.ts";
 import {
@@ -97,6 +96,12 @@ import {
 import { resolveAccountProxiesFromRegistry } from "./noAuthProxyResolution";
 import { getNoAuthHydrationProviderIds } from "./noAuthProviderSiblings";
 import { getResource404Bypass } from "./requestResourceHealth";
+import {
+  canonicalizeAntigravityExactModel,
+  tryAcquireAntigravityLease,
+  releaseAntigravityLease,
+  type AntigravityLease,
+} from "./antigravityRoutingState";
 import { isVertexConnectionWidePermissionDenied } from "./vertexErrorClassifier";
 import * as log from "../utils/logger";
 import { fisherYatesShuffle, getNextFromDeckSync } from "@/shared/utils/shuffleDeck";
@@ -124,6 +129,10 @@ interface CredentialSelectionOptions {
   excludeConnectionIds?: string[] | null;
   sessionKey?: string | null;
   sessionAffinityTtlMs?: number | null;
+  /** Internal process-local routing lease; only final chat dispatch opts in. */
+  routingRequestId?: string | null;
+  routingDeadlineMs?: number | null;
+  reserveAntigravityLease?: boolean;
   reserveOAuthSession?: boolean;
 }
 interface CooldownInspectionState {
@@ -1248,7 +1257,6 @@ export async function getProviderCredentials(
     }
 
     let modelLockedCount = 0;
-    let familyLockedCount = 0;
     const connectionFilterStatus = new Map<string, string>();
     // Filter out unavailable accounts and excluded connection
     let availableConnections = connections.filter((c) => {
@@ -1284,14 +1292,7 @@ export async function getProviderCredentials(
             ))
         ) {
           connectionFilterStatus.set(c.id, "modelLocked");
-          if (
-            provider === "antigravity" &&
-            getQuotaScopeLabelForProvider(provider, requestedModel) === "family"
-          ) {
-            familyLockedCount += 1;
-          } else {
-            modelLockedCount += 1;
-          }
+          modelLockedCount += 1;
           return false;
         }
       }
@@ -1314,7 +1315,7 @@ export async function getProviderCredentials(
     if (provider === "antigravity") {
       log.info(
         "AUTH",
-        `${provider} selection candidates model=${requestedModel || "none"}: active=${activeConnectionsCount}, excluded=${excludedConnectionIds.size}, modelLocked=${modelLockedCount}, familyLocked=${familyLockedCount}, eligible=${availableConnections.length}`
+        `${provider} selection candidates model=${requestedModel || "none"}: active=${activeConnectionsCount}, excluded=${excludedConnectionIds.size}, modelLocked=${modelLockedCount}, eligible=${availableConnections.length}`
       );
     }
     connections.forEach((c) => {
@@ -1748,15 +1749,30 @@ export async function getProviderCredentials(
         .find(
           (candidate) =>
             getOAuthSessionAvailability(candidate.id, options.sessionKey) > selectedAvailability
-        );
+      );
       if (moreAvailablePeer) connection = moreAvailablePeer;
     }
 
+    let routingLease: AntigravityLease | undefined;
+    if (provider === "antigravity" && connection && options.reserveAntigravityLease === true) {
+      const acquired = tryAcquireAntigravityLease({
+        connectionId: connection.id,
+        requestedModel,
+        requestId: options.routingRequestId,
+        deadlineMs: options.routingDeadlineMs,
+      });
+      if (acquired.kind === "busy") {
+        return {
+          leaseUnavailable: true as const,
+          selectedConnectionId: connection.id,
+          earliestLeaseExpiryMs: acquired.earliestExpiryMs,
+        };
+      }
+      routingLease = acquired.lease;
+    }
+
     if (provider === "antigravity" && connection) {
-      log.info(
-        "AUTH",
-        `${provider} selected account=${connection.id?.slice(0, 8)}... eligible=${orderedConnections.length} excluded=${excludedConnectionIds.size}`
-      );
+      log.info("AUTH", `${provider} selected account=${connection.id?.slice(0, 8)}... eligible=${orderedConnections.length} excluded=${excludedConnectionIds.size}`);
     }
 
     const apiKeyHealth = connection.providerSpecificData?.apiKeyHealth as
@@ -1806,6 +1822,14 @@ export async function getProviderCredentials(
       // getProviderCredentialsWithQuotaPreflight can see them. Without this,
       // user-set cutoffs would silently never enforce.
       quotaWindowThresholds: connection.quotaWindowThresholds ?? null,
+      routing: routingLease
+        ? {
+            provider: "antigravity" as const,
+            connectionId: connection.id,
+            exactModel: canonicalizeAntigravityExactModel(requestedModel),
+            leaseId: routingLease.id,
+          }
+        : undefined,
       ...(releaseOAuthSession ? { releaseOAuthSession } : {}),
     };
   } finally {
@@ -1975,12 +1999,16 @@ export async function getProviderCredentialsWithQuotaPreflight(
         resolveWarnRemainingPercent: () => warnThresholdPercent,
       });
     } catch (error) {
+      releaseAntigravityLease(
+        (credentials as { routing?: { leaseId?: string } }).routing?.leaseId
+      );
       selectedCredentials.releaseOAuthSession?.();
       throw error;
     }
     if (preflight.proceed) {
       return credentials;
     }
+    releaseAntigravityLease((credentials as { routing?: { leaseId?: string } }).routing?.leaseId);
 
     selectedCredentials.releaseOAuthSession?.();
 
@@ -2252,15 +2280,11 @@ export async function markAccountUnavailable(
         return { shouldFallback: true, cooldownMs: 0 };
       }
 
+      // Antigravity's initial 429 backoff is still useful, but its lock key is
+      // exact-model scoped by accountFallback's canonical quota scope.
       const usesExactAntigravityLock = provider === "antigravity";
-      const quotaScope = usesExactAntigravityLock
-        ? "model"
-        : getQuotaScopeLabelForProvider(provider, model);
       const antigravityFamilyInferredBaseCooldownMs =
-        !usesExactAntigravityLock &&
-        provider === "antigravity" &&
-        quotaScope === "family" &&
-        status === 429
+        provider === "antigravity" && status === 429
           ? ANTIGRAVITY_FAMILY_INFERRED_BASE_COOLDOWN_MS
           : null;
       const lockout = recordModelLockoutFailure(
