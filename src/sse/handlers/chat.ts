@@ -62,6 +62,7 @@ import {
   evictSessionAccountAffinityForConnection,
   getSessionAccountAffinity,
 } from "@/lib/db/sessionAccountAffinity";
+import { dispatchChatWithAffinityEviction } from "./chatDispatch";
 import { getCachedSettings, getCombosCacheVersion } from "@/lib/db/readCache";
 import { getCombos } from "@/lib/db/combos";
 import { resolveModelLockoutSettings } from "@/lib/resilience/modelLockoutSettings";
@@ -148,6 +149,7 @@ import {
   registerCodexQuotaFetcher,
 } from "@omniroute/open-sse/services/codexQuotaFetcher.ts";
 import { registerBailianCodingPlanQuotaFetcher } from "@omniroute/open-sse/services/bailianQuotaFetcher.ts";
+import { registerQwenTokenPlanQuotaFetcher } from "@omniroute/open-sse/services/qwenTokenPlanQuotaFetcher.ts";
 import { registerCrofUsageFetcher } from "@omniroute/open-sse/services/crofUsageFetcher.ts";
 import { registerDeepseekQuotaFetcher } from "@omniroute/open-sse/services/deepseekQuotaFetcher.ts";
 import { registerOpenrouterQuotaFetcher } from "@omniroute/open-sse/services/openrouterQuotaFetcher.ts";
@@ -170,6 +172,11 @@ registerCodexQuotaFetcher();
 // This hooks into the quotaPreflight + quotaMonitor systems so that combos
 // can proactively switch accounts before quota is exhausted.
 registerBailianCodingPlanQuotaFetcher();
+
+// Register the Qwen Cloud / Model Studio personal Token Plan fetcher (#9603).
+// Cookie-authenticated console gateway — 5-hour + weekly sliding windows.
+// Runs before registerGenericQuotaFetchers so the bespoke fetcher wins.
+registerQwenTokenPlanQuotaFetcher();
 
 // Register CrofAI usage fetcher (subscription requests + credits balance).
 // Surfaces usable_requests + credits in the monitor and only blocks (preflight
@@ -530,6 +537,7 @@ async function handleChatImplementation(
     log,
     method: request.method,
     model: modelStr,
+    signal: request.signal,
     stream: body?.stream === true,
   });
   if (preCallGuardrails.blocked) {
@@ -787,7 +795,7 @@ async function handleChatImplementation(
           ...(bypassProviderQuotaPolicy ? { bypassQuotaPolicy: true } : {}),
         }
       );
-      if (!creds || creds.allRateLimited) return false;
+      if (!creds || !("authType" in creds)) return false;
 
       // OAuth selection must happen atomically with occupancy reservation in the
       // actual dispatch. Availability preflight may finish well before a combo
@@ -1528,41 +1536,41 @@ async function handleSingleModelChat(
       const proxyStartTime = Date.now();
       // 4. Execute chat via core after breaker gate checks (with optional TLS tracking)
       if (telemetry) telemetry.startPhase("connect");
-      const dispatchClientRawRequest = resolveDispatchClientRawRequest(
-        clientRawRequest,
-        runtimeOptions.modelAbortSignal
-      );
-      let execution: Awaited<ReturnType<typeof executeChatWithBreaker>>;
+      let execution: Awaited<ReturnType<typeof dispatchChatWithAffinityEviction>>;
       try {
-        execution = await executeChatWithBreaker({
-          bypassCircuitBreaker: forceLiveComboTest || hasForcedConnection,
-          breaker,
-          body: requestBody,
-          provider,
-          model: effectiveModel,
-          refreshedCredentials,
-          proxyInfo,
-          appliedProxySink,
-          log,
-          clientRawRequest: dispatchClientRawRequest,
-          credentials,
-          apiKeyInfo,
-          userAgent,
-          comboName,
-          comboStrategy,
-          isCombo,
-          comboStepId: runtimeOptions.comboStepId ?? null,
-          comboExecutionKey: runtimeOptions.comboExecutionKey ?? runtimeOptions.comboStepId ?? null,
-          extendedContext,
-          modelApiFormat: apiFormat,
-          modelTargetFormat: targetFormat,
-          providerProfile,
-          cachedSettings: runtimeOptions.cachedSettings,
-          skipUpstreamRetry: runtimeOptions.skipUpstreamRetry ?? false,
-          correlationId: runtimeOptions?.correlationId ?? null,
-          modelPinned: runtimeOptions?.modelPinned ?? false,
-          routingComboId: runtimeOptions?.routingComboId ?? null,
-        });
+        execution = await dispatchChatWithAffinityEviction(
+          {
+            bypassCircuitBreaker: forceLiveComboTest || hasForcedConnection,
+            breaker,
+            body: requestBody,
+            provider,
+            model: effectiveModel,
+            refreshedCredentials,
+            proxyInfo,
+            appliedProxySink,
+            log,
+            clientRawRequest,
+            credentials,
+            apiKeyInfo,
+            userAgent,
+            comboName,
+            comboStrategy,
+            isCombo,
+            comboStepId: runtimeOptions.comboStepId ?? null,
+            comboExecutionKey: runtimeOptions.comboExecutionKey ?? runtimeOptions.comboStepId ?? null,
+            extendedContext,
+            modelApiFormat: apiFormat,
+            modelTargetFormat: targetFormat,
+            providerProfile,
+            cachedSettings: runtimeOptions.cachedSettings,
+            skipUpstreamRetry: runtimeOptions.skipUpstreamRetry ?? false,
+            correlationId: runtimeOptions?.correlationId ?? null,
+            modelPinned: runtimeOptions?.modelPinned ?? false,
+            routingComboId: runtimeOptions?.routingComboId ?? null,
+            sessionAffinityKey: runtimeOptions.sessionAffinityKey ?? null,
+          },
+          runtimeOptions
+        );
       } catch (error) {
         releaseOAuthSession();
         throw error;
