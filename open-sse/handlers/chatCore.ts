@@ -159,7 +159,13 @@ import {
   buildCapabilityMismatchMessage,
 } from "@/shared/constants/capabilities/capabilityFilter.ts";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags.ts";
-import { toPositiveInteger } from "../services/reasoningTokenBuffer.ts";
+import {
+  REASONING_BUFFER_MIN_TRIGGER,
+  buildReasoningProbeTruncatedResponse,
+  isEmptyContentUpstreamFailure,
+  isTinyBudgetReasoningProbe,
+  toPositiveInteger,
+} from "../services/reasoningTokenBuffer.ts";
 import { normalizeThinkingForModel } from "@/shared/constants/modelSpecs.ts";
 import {
   buildErrorBody,
@@ -3806,6 +3812,33 @@ export async function handleChatCore({
 
     if (signatureRecovery.succeeded) break providerFailure;
 
+    // #10281 — tiny-budget reasoning probes (e.g. Claude Code's `/model` check
+    // sends `max_tokens: 1`): the model burns the whole budget on thinking, and
+    // some upstreams (e.g. api.cline.bot for deepseek-v4-flash) answer the empty
+    // outcome with a 5xx ("empty response content") instead of a truncated 200.
+    // Answer such probes with a valid truncated response rather than relaying the
+    // upstream failure — which would also mark the connection unavailable and
+    // poison fallback/cooldown bookkeeping for a request that is only a probe.
+    if (
+      !stream &&
+      isTinyBudgetReasoningProbe({ model: currentModel, body: finalBody || translatedBody }) &&
+      isEmptyContentUpstreamFailure(statusCode, message)
+    ) {
+      providerResponse = buildReasoningProbeTruncatedResponse({
+        model: currentModel,
+        maxTokens: toPositiveInteger(
+          (finalBody || translatedBody)?.max_tokens ??
+            (finalBody || translatedBody)?.max_completion_tokens
+        ),
+        requestId: skillRequestId,
+      });
+      log?.warn?.(
+        "PROBE",
+        `Reasoning probe (max_tokens < ${REASONING_BUFFER_MIN_TRIGGER}) answered with truncated 200 — upstream reported "${message}"`
+      );
+      break providerFailure;
+    }
+
     // T06/T10/T36: classify provider errors and persist terminal account states.
     let errorType = classifyProviderError(statusCode, message, provider);
     if (statusCode === 429 && isModelScope()) {
@@ -3979,6 +4012,28 @@ export async function handleChatCore({
           }
           console.warn(
             `[provider] Node ${errorConnectionId} GCP project required (${statusCode}) — excluded for ${Math.ceil(byopCooldownMs / 1000)}s, routing to other accounts (enter a Project ID to restore)`
+          );
+        } else if (errorType === PROVIDER_ERROR_TYPES.GEO_BLOCKED) {
+          // Google regional-availability refusal (e.g. "User location is not
+          // supported for the API use."). Account-independent and non-terminal:
+          // exclude the connection for the cooldown window so routing moves to
+          // other accounts instead of re-selecting this one on every request,
+          // and never mark it banned/expired. It becomes usable again once
+          // egress is routed through a supported-region proxy.
+          const geoCooldownMs = COOLDOWN_MS.geoBlocked ?? 24 * 60 * 60 * 1000;
+          await updateProviderConnection(errorConnectionId, {
+            lastErrorType: errorType,
+            lastError: message,
+            errorCode: statusCode,
+          });
+          try {
+            const { setConnectionRateLimitUntil } = await import("@/lib/db/providers");
+            setConnectionRateLimitUntil(errorConnectionId, Date.now() + geoCooldownMs);
+          } catch {
+            // DB write failure must never break the fallback loop
+          }
+          console.warn(
+            `[provider] Node ${errorConnectionId} geo-blocked (${statusCode}) — excluded for ${Math.ceil(geoCooldownMs / 1000)}s, trying other accounts`
           );
         } else if (errorType === PROVIDER_ERROR_TYPES.MODEL_NOT_FOUND) {
           // 404 — model/endpoint does not exist upstream. Lock the model so the
