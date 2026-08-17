@@ -17,6 +17,7 @@ import {
   isClaudeCodeCompatibleProvider,
   isOpenAICompatibleProvider,
   isAnthropicCompatibleProvider,
+  resolveProviderId,
 } from "@/shared/constants/providers";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { syncToCloud } from "@/lib/cloudSync";
@@ -98,7 +99,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
     const {
-      provider,
+      provider: requestedProvider,
       apiKey,
       name,
       priority,
@@ -107,6 +108,7 @@ export async function POST(request: Request) {
       testStatus,
       providerSpecificData: incomingPsd,
     } = validation.data;
+    const provider = resolveProviderId(requestedProvider);
 
     // Business validation
     const isValidProvider =
