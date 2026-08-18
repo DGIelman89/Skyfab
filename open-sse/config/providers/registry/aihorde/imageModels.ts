@@ -6,7 +6,7 @@
  * imageRegistry stays under the file-size cap and zero-worker names are
  * never advertised.
  */
-import { getCachedAiHordeImageCatalogEntries } from "../../../../services/aihordeImageCatalog.ts";
+import { getRegisteredAiHordeImageCatalogEntries } from "./imageCatalogBridge.ts";
 
 export const AI_HORDE_IMAGE_PROVIDER = {
   id: "aihorde",
@@ -16,7 +16,7 @@ export const AI_HORDE_IMAGE_PROVIDER = {
   authHeader: "apikey",
   format: "aihorde",
   get models() {
-    return getCachedAiHordeImageCatalogEntries().map((entry) => ({
+    return getRegisteredAiHordeImageCatalogEntries().map((entry) => ({
       id: entry.id.startsWith("aihorde/") ? entry.id.slice("aihorde/".length) : entry.id,
       name: entry.name,
       inputModalities: entry.inputModalities,
