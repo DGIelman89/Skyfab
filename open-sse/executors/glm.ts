@@ -21,6 +21,7 @@ import {
 import { applyProviderRequestDefaults } from "../services/providerRequestDefaults.ts";
 import { stripUnsupportedParams } from "../translator/paramSupport.ts";
 import { getRotatingApiKey } from "../services/apiKeyRotator.ts";
+import type { KeyHealth } from "../services/apiKeyRotator.ts";
 import { CLAUDE_CLI_STAINLESS_PACKAGE_VERSION } from "../config/anthropicHeaders.ts";
 import {
   getRuntimeVersion,
@@ -244,8 +245,13 @@ export class GlmExecutor extends DefaultExecutor {
     stream = true,
     _clientHeaders?: Record<string, string> | null,
     _model?: string,
-    transport: GlmTransport = getGlmTransport(credentials.providerSpecificData)
+    healthOrTransport?: Record<string, KeyHealth> | GlmTransport,
+    _body?: unknown
   ): Record<string, string> {
+    const transport =
+      typeof healthOrTransport === "string"
+        ? healthOrTransport
+        : getGlmTransport(credentials.providerSpecificData);
     if (transport === "openai") {
       return buildGlmCodingHeaders(getEffectiveKey(credentials), stream);
     }

@@ -213,6 +213,26 @@ test("b64_json download failure surfaces a specific 502", async () => {
   assert.match(res.error, /generated an image but OmniRoute could not download it/);
 });
 
+test("b64_json download failure sanitizes runtime details", async () => {
+  const res = await handleGeminiWebImageGeneration({
+    ...baseArgs,
+    body: { prompt: "a red panda", response_format: "b64_json" },
+    executorFactory: () =>
+      fakeExecutor({
+        choices: [{ message: { role: "assistant", content: "" } }],
+        x_gemini_web_image_urls: [IMG_URL],
+      }),
+    imageFetcher: async () => {
+      throw new Error("download failed at /srv/omniroute/open-sse/private.ts:12:4\n at fetchImage");
+    },
+  });
+
+  assert.equal(res.success, false);
+  assert.equal(res.status, 502);
+  assert.match(res.error, /download failed at <path>/);
+  assert.doesNotMatch(res.error, /\/srv\/omniroute|fetchImage/);
+});
+
 test("no images generated: 502 includes assistant text (refusal visibility)", async () => {
   const res = await handleGeminiWebImageGeneration({
     ...baseArgs,

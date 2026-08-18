@@ -66,16 +66,21 @@ test("runOAuthStatus filtra apenas conexões oauth/oauth2", async () => {
   globalThis.fetch = ((url: string) => {
     assert.ok(url.includes("/api/providers"));
     return Promise.resolve(makeResp({ providers: CONNECTIONS }));
-  }) as any;
+  }) as unknown as typeof fetch;
 
   const { runOAuthStatus } = await import("../../bin/cli/commands/oauth.mjs");
-  const out = await captureStdout(() => runOAuthStatus({}, makeCmd() as any));
+  const out = await captureStdout(() => runOAuthStatus({}, makeCmd()));
 
   globalThis.fetch = origFetch;
   const parsed = JSON.parse(out);
   assert.ok(Array.isArray(parsed));
   assert.equal(parsed.length, 2);
-  assert.ok(parsed.every((c: any) => c.authType === "oauth" || c.authType === "oauth2"));
+  assert.ok(
+    parsed.every(
+      (connection: { authType: string }) =>
+        connection.authType === "oauth" || connection.authType === "oauth2",
+    ),
+  );
 });
 
 test("runOAuthStatus filtra por provider", async () => {
@@ -86,10 +91,10 @@ test("runOAuthStatus filtra por provider", async () => {
     return Promise.resolve(
       makeResp({ providers: CONNECTIONS.filter((c) => c.provider === "gemini") })
     );
-  }) as any;
+  }) as unknown as typeof fetch;
 
   const { runOAuthStatus } = await import("../../bin/cli/commands/oauth.mjs");
-  await captureStdout(() => runOAuthStatus({ provider: "gemini" }, makeCmd() as any));
+  await captureStdout(() => runOAuthStatus({ provider: "gemini" }, makeCmd()));
 
   globalThis.fetch = origFetch;
   assert.ok(capturedUrl.includes("provider=gemini"));
@@ -100,11 +105,11 @@ test("runOAuthStatus consumes the connections envelope", async () => {
   globalThis.fetch = ((url: string) => {
     assert.ok(url.includes("/api/providers"));
     return Promise.resolve(makeResp({ connections: CONNECTIONS }));
-  }) as any;
+  }) as unknown as typeof fetch;
 
   try {
     const { runOAuthStatus } = await import("../../bin/cli/commands/oauth.mjs");
-    const out = await captureStdout(() => runOAuthStatus({}, makeCmd() as any));
+    const out = await captureStdout(() => runOAuthStatus({}, makeCmd()));
     const parsed = JSON.parse(out);
     assert.deepEqual(
       parsed.map((connection: { id: string }) => connection.id),
@@ -119,15 +124,15 @@ test("runOAuthRevoke com --yes chama endpoint de revogação", async () => {
   let capturedUrl = "";
   let capturedMethod = "";
   const origFetch = globalThis.fetch;
-  globalThis.fetch = ((url: string, opts: any) => {
+  globalThis.fetch = ((url: string, opts?: RequestInit) => {
     capturedUrl = url;
     capturedMethod = opts?.method ?? "GET";
     return Promise.resolve(makeResp({}));
-  }) as any;
+  }) as unknown as typeof fetch;
 
   const out = await captureStdout(async () => {
     const { runOAuthRevoke } = await import("../../bin/cli/commands/oauth.mjs");
-    await runOAuthRevoke({ provider: "gemini", yes: true }, makeCmd() as any);
+    await runOAuthRevoke({ provider: "gemini", yes: true }, makeCmd());
   });
 
   globalThis.fetch = origFetch;
@@ -140,17 +145,17 @@ test("runOAuthRevoke com connectionId usa DELETE no provider", async () => {
   let capturedUrl = "";
   let capturedMethod = "";
   const origFetch = globalThis.fetch;
-  globalThis.fetch = ((url: string, opts: any) => {
+  globalThis.fetch = ((url: string, opts?: RequestInit) => {
     capturedUrl = url;
     capturedMethod = opts?.method ?? "GET";
     return Promise.resolve(makeResp({}));
-  }) as any;
+  }) as unknown as typeof fetch;
 
   const out = await captureStdout(async () => {
     const { runOAuthRevoke } = await import("../../bin/cli/commands/oauth.mjs");
     await runOAuthRevoke(
       { provider: "gemini", connectionId: "conn1", yes: true },
-      makeCmd() as any
+      makeCmd(),
     );
   });
 
@@ -164,15 +169,15 @@ test("runOAuthStart flow=import chama endpoint de import", async () => {
   let capturedUrl = "";
   let capturedMethod = "";
   const origFetch = globalThis.fetch;
-  globalThis.fetch = ((url: string, opts: any) => {
+  globalThis.fetch = ((url: string, opts?: RequestInit) => {
     capturedUrl = url;
     capturedMethod = opts?.method ?? "GET";
     return Promise.resolve(makeResp({ count: 3 }));
-  }) as any;
+  }) as unknown as typeof fetch;
 
   const out = await captureStdout(async () => {
     const { runOAuthStart } = await import("../../bin/cli/commands/oauth.mjs");
-    await runOAuthStart({ provider: "cursor" }, makeCmd() as any);
+    await runOAuthStart({ provider: "cursor" }, makeCmd());
   });
 
   globalThis.fetch = origFetch;
@@ -187,11 +192,11 @@ test("runOAuthStart flow=import com --import-from-system usa auto-import", async
   globalThis.fetch = ((url: string) => {
     capturedUrl = url;
     return Promise.resolve(makeResp({ count: 1 }));
-  }) as any;
+  }) as unknown as typeof fetch;
 
   const out = await captureStdout(async () => {
     const { runOAuthStart } = await import("../../bin/cli/commands/oauth.mjs");
-    await runOAuthStart({ provider: "zed", importFromSystem: true }, makeCmd() as any);
+    await runOAuthStart({ provider: "zed", importFromSystem: true }, makeCmd());
   });
 
   globalThis.fetch = origFetch;
@@ -232,14 +237,14 @@ test("providers lista provedores OAuth conhecidos", async () => {
   // validate via runOAuthStart unknown provider exits
   const origExit = process.exit;
   let exitCode: number | undefined;
-  process.exit = ((code: number) => {
-    exitCode = code;
+  process.exit = ((code?: number | string | null): never => {
+    exitCode = typeof code === "number" ? code : undefined;
     throw new Error("exit");
-  }) as any;
+  }) as typeof process.exit;
 
   try {
     const { runOAuthStart } = await import("../../bin/cli/commands/oauth.mjs");
-    await runOAuthStart({ provider: "unknown_provider_xyz" }, makeCmd() as any).catch(() => {});
+    await runOAuthStart({ provider: "unknown_provider_xyz" }, makeCmd()).catch(() => {});
   } catch {
     // expected
   }

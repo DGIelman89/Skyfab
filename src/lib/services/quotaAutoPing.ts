@@ -24,7 +24,8 @@ import { logger } from "@omniroute/open-sse/utils/logger.ts";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
 import { getExecutor } from "@omniroute/open-sse/executors/index.ts";
 import { getCodexUsage } from "@omniroute/open-sse/services/usage/codex.ts";
-import { getSettings, getProviderConnections, updateProviderConnection } from "@/lib/localDb";
+import { getProviderConnections, updateProviderConnection } from "@/lib/db/providers";
+import { getSettings } from "@/lib/db/settings";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import { refreshAndUpdateCredentials } from "@/lib/usage/providerLimits";
 import { getCircuitBreaker } from "@/shared/utils/circuitBreaker";
@@ -446,12 +447,4 @@ export function startQuotaAutoPing(): void {
     runQuotaAutoPingTick(createDefaultQuotaAutoPingDeps(), schedulerState).catch(() => undefined);
   }, QUOTA_AUTOPING_TICK_INTERVAL_MS);
   schedulerInterval.unref?.();
-}
-
-/** Stop the in-process scheduler. Idempotent — a second call is a no-op. */
-export function stopQuotaAutoPing(): void {
-  if (!schedulerInterval) return;
-  clearInterval(schedulerInterval);
-  schedulerInterval = null;
-  log.info("scheduler stopped");
 }

@@ -177,14 +177,6 @@ async function ensureSecrets(): Promise<void> {
  */
 export async function warmModelCatalogCache(): Promise<void> {
   try {
-    const { getUnifiedModelsResponse } = await import("@/app/api/v1/models/catalog");
-    await getUnifiedModelsResponse(new Request("http://127.0.0.1/v1/models"));
-    console.log("[STARTUP] Model catalog cache warmed");
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn("[STARTUP] Model catalog warmup failed (non-fatal):", msg);
-  }
-  try {
     const [{ getProviderConnections }, { getOpenRouterCatalog }] = await Promise.all([
       import("@/lib/db/providers"),
       import("@/lib/catalog/openrouterCatalog"),
@@ -555,12 +547,14 @@ export async function registerNodejs(): Promise<void> {
 
       // Conductor bridge (PRD Conductor RF1): mirrors OmniConductor hub tasks into the
       // A2A TaskManager via the hub SSE. Opt-in — self-gated on CONDUCTOR_HUB_URL.
-      import("@/lib/conductor/boot").then((m) => {
-        if (m.initConductorBridge()) console.log("[STARTUP] Conductor bridge started");
-      }).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn("[STARTUP] Conductor bridge failed to start (non-fatal):", msg);
-      }),
+      import("@/lib/conductor/boot")
+        .then((m) => {
+          if (m.initConductorBridge()) console.log("[STARTUP] Conductor bridge started");
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn("[STARTUP] Conductor bridge failed to start (non-fatal):", msg);
+        }),
 
       // Proactive connection-cooldown recovery (#8): re-validate connections whose
       // transient `rate_limited_until` window has elapsed OUTSIDE the request hot path,

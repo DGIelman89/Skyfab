@@ -18,7 +18,6 @@ function getPublicModel(id: string) {
 }
 
 const EXPECTED_FLASH_TIERS = [
-  ["gemini-3.7-flash", "Gemini 3.7 Flash"],
   ["gemini-3.7-flash-high", "Gemini 3.7 Flash (High)"],
   ["gemini-3.7-flash-medium", "Gemini 3.7 Flash (Medium)"],
   ["gemini-3.7-flash-low", "Gemini 3.7 Flash (Low)"],
@@ -54,12 +53,9 @@ test("toClientAntigravityQuotaModelId preserves upstream Gemini Flash bucket IDs
 test("resolveAntigravityModelId maps the documented Antigravity aliases to upstream IDs", () => {
   assert.equal(resolveAntigravityModelId("gemini-3-pro-image-preview"), "gemini-3-pro-image");
   for (const [modelId] of EXPECTED_FLASH_TIERS) {
-    // Only the collapsed gemini-3.7-flash id is aliased to the live upstream
-    // gemini-3.7-flash-tiered id; the suffixed gemini-3.7-flash-high/medium tier ids
-    // (like the 3.6/3.5 tiers) have no alias entry and pass through verbatim.
-    const expected = modelId === "gemini-3.7-flash" ? "gemini-3.7-flash-tiered" : modelId;
-    assert.equal(resolveAntigravityModelId(modelId), expected);
+    assert.equal(resolveAntigravityModelId(modelId), modelId);
   }
+  assert.equal(resolveAntigravityModelId("gemini-3.7-flash"), "gemini-3.7-flash");
   assert.equal(resolveAntigravityModelId("gemini-claude-sonnet-4-5"), "claude-sonnet-4-6");
   assert.equal(resolveAntigravityModelId("gemini-claude-sonnet-4-5-thinking"), "claude-sonnet-4-6");
   assert.equal(
@@ -88,6 +84,7 @@ test("isUserCallableAntigravityModelId only allows public chat-capable model IDs
   for (const [modelId] of EXPECTED_FLASH_TIERS) {
     assert.equal(isUserCallableAntigravityModelId(modelId), true);
   }
+  assert.equal(isUserCallableAntigravityModelId("gemini-3.7-flash"), false);
   assert.equal(isUserCallableAntigravityModelId("gemini-3.1-flash-lite"), true);
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-pro"), false);
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-flash"), false);
@@ -155,6 +152,7 @@ test("ANTIGRAVITY_PUBLIC_MODELS exposes current live names and capabilities", ()
     });
     assert.equal(getClientVisibleAntigravityModelName(modelId), displayName);
   }
+  assert.equal(getPublicModel("gemini-3.7-flash"), undefined);
   for (const retiredId of RETIRED_FLASH_IDS) {
     assert.equal(getPublicModel(retiredId), undefined);
   }

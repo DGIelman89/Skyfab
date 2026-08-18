@@ -512,10 +512,13 @@ test("model sync route import mode merges discovered models without deleting man
   assert.equal(body.updatedCount, 0);
   assert.equal(body.syncedAliases, 1);
   assert.deepEqual(body.modelChanges, { added: 1, removed: 0, updated: 0, total: 1 });
-  assert.deepEqual(body.customModelChanges, { added: 0, removed: 1, updated: 0, total: 1 });
+  assert.deepEqual(body.customModelChanges, { added: 0, removed: 0, updated: 0, total: 0 });
   assert.deepEqual(
     body.models.map((model) => ({ id: model.id, source: model.source })),
-    [{ id: "manual-only", source: "manual" }]
+    [
+      { id: "manual-only", source: "manual" },
+      { id: "router-v4", source: "manual" },
+    ]
   );
   assert.deepEqual(
     body.importedModels.map((model) => ({ id: model.id, source: model.source })),
@@ -858,10 +861,13 @@ test("model sync route reports synced managed models separately from preserved m
   assert.equal(body.availableModelsCount, 2);
   assert.equal(body.importedCount, 1);
   assert.equal(body.updatedCount, 0);
-  assert.deepEqual(body.customModelChanges, { added: 0, removed: 1, updated: 0, total: 1 });
+  assert.deepEqual(body.customModelChanges, { added: 0, removed: 0, updated: 0, total: 0 });
   assert.deepEqual(
     body.models.map((model) => ({ id: model.id, source: model.source })),
-    [{ id: "manual-only", source: "manual" }]
+    [
+      { id: "manual-only", source: "manual" },
+      { id: "router-v4", source: "manual" },
+    ]
   );
   assert.deepEqual(
     (await modelsDb.getSyncedAvailableModels("openrouter")).map((model) => ({

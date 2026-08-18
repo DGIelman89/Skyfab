@@ -7760,6 +7760,10 @@
         "label": "Ponytail (lazy senior dev)",
         "description": "Lazy senior-dev discipline: climb the YAGNI ladder, fix root cause, smallest working diff."
       },
+      "i-have-adhd": {
+        "label": "Tôi mắc ADHD (hành động trước)",
+        "description": "Câu trả lời ưu tiên hành động: mở đầu bằng hành động tiếp theo, đánh số các bước, nêu một bước cụ thể tiếp theo và không viết lời dẫn."
+      },
       "terse-cjk": {
         "label": "CJK súc tích (文言)",
         "description": "Văn phong Hán cổ cực kỳ súc tích (chỉ khả dụng với tiếng Trung)."
@@ -8040,6 +8044,10 @@
     "disableSessionStickinessDesc": "Các tổ hợp luân phiên và ngẫu nhiên sẽ chuyển sang một kết nối khác với mỗi yêu cầu, thay vì gắn toàn bộ cuộc trò chuyện với một kết nối dựa trên mã băm của tin nhắn đầu tiên. Hãy để tùy chọn này tắt để duy trì các lần trúng cache prompt cho các cuộc trò chuyện nhiều lượt. Các thiết lập ghi đè theo từng tổ hợp được ưu tiên.",
     "promptCacheAffinity": "Prompt-cache locality routing",
     "promptCacheAffinityDesc": "Prefer the same provider account for matching prompt-cache keys while preserving health and quota failover.",
+    "reasoningTokenBuffer": "Bộ đệm token suy luận",
+    "reasoningTokenBufferDesc": "Cho phép định tuyến tổ hợp chỉ thêm phần dự phòng max_tokens cho các mô hình suy luận đã biết khi toàn bộ bộ đệm nằm trong giới hạn đầu ra đã biết.",
+    "zeroLatencyOptimizations": "Tối ưu hóa độ trễ bằng không",
+    "zeroLatencyOptimizationsDesc": "Bật hedging, bỏ qua TTFT theo dự đoán và chủ động nén khi dự phòng. Để tắt nhằm ngăn các tính năng giảm độ trễ này cạnh tranh đích hoặc nén yêu cầu dự phòng.",
     "credentialRedaction": "Credential Redaction",
     "credentialRedactionDesc": "Redact API keys, tokens, and secrets from context sent to providers and from responses.",
     "enableCredentialRedaction": "Enable credential redaction",
