@@ -360,7 +360,7 @@ describe("ensureCacheControlOnLastUserMessage", () => {
     assert.deepEqual(body.messages[2].content[0].cache_control, { type: "ephemeral" });
   });
 
-  it("keeps an existing message breakpoint without adding another", () => {
+  it("keeps an existing message breakpoint and advances one to the last user message", () => {
     const body = {
       messages: [
         {
@@ -379,7 +379,8 @@ describe("ensureCacheControlOnLastUserMessage", () => {
 
     ensureCacheControlOnLastUserMessage(body);
 
-    assert.equal(body.messages[1].content[0].cache_control, undefined);
+    assert.deepEqual(body.messages[0].content[0].cache_control, { type: "ephemeral" });
+    assert.deepEqual(body.messages[1].content[0].cache_control, { type: "ephemeral" });
   });
 
   it("does not exceed four surviving system and message breakpoints", () => {
