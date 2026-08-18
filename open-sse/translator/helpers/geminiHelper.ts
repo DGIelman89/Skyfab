@@ -727,5 +727,34 @@ export function cleanJSONSchemaForAntigravity(schema: unknown): unknown {
 
   injectObjectType(cleaned);
 
+  // Phase 8: Ensure array-typed properties have an `items` schema (#10578).
+  // Gemini rejects array properties without `items` with a 400:
+  // "function_declarations[N].parameters.properties[X].items: missing field".
+  // Some clients (e.g. Claude Code with many MCP tools) emit array params
+  // without items. Inject a permissive fallback so the request isn't rejected.
+  function ensureArrayItems(obj: unknown): void {
+    if (!obj || typeof obj !== "object") return;
+
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        ensureArrayItems(item);
+      }
+      return;
+    }
+
+    const record = obj as JsonRecord;
+    if (record.type === "array" && !record.items) {
+      record.items = { type: "string" };
+    }
+
+    for (const value of Object.values(record)) {
+      if (value && typeof value === "object") {
+        ensureArrayItems(value);
+      }
+    }
+  }
+
+  ensureArrayItems(cleaned);
+
   return cleaned;
 }
