@@ -39,9 +39,7 @@
   "incremental": true,
   "incrementalFile": "reports/mutation/stryker-incremental.json",
   "testRunner": "tap",
-  "plugins": [
-    "@stryker-mutator/tap-runner"
-  ],
+  "plugins": ["@stryker-mutator/tap-runner"],
   "tap": {
     "testFiles": [
       "tests/unit/7993-noauth-proxy-routing.test.ts",
@@ -53,6 +51,7 @@
       "tests/unit/8396-cooldown-429-cap.test.ts",
       "tests/unit/8488-capability-filter-fail-closed.test.ts",
       "tests/unit/8779-agy-prefix-credential-lookup.test.ts",
+      "tests/unit/10085-compatible-generic-vs-uuid-credential.test.ts",
       "tests/unit/account-fallback-anthropic-quota.test.ts",
       "tests/unit/account-fallback-cf1010-no-retry-8775.test.ts",
       "tests/unit/account-fallback-lockout-eviction.test.ts",
@@ -468,11 +467,7 @@
     ".worktrees",
     ".stryker-tmp"
   ],
-  "reporters": [
-    "progress",
-    "html",
-    "json"
-  ],
+  "reporters": ["progress", "html", "json"],
   "htmlReporter": {
     "fileName": "reports/mutation/mutation.html"
   },
