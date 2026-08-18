@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+process.env.OMNIROUTE_SSE_COMMENTS = "on";
+
 const { createSseHeartbeatTransform } = await import("../../open-sse/utils/sseHeartbeat.ts");
 
 function withFakeIntervals(fn) {

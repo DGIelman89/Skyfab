@@ -18,6 +18,7 @@
 // explicit generation directive (corroborated by gemini-webapi's docs).
 
 import { GeminiWebExecutor } from "../../../executors/gemini-web.ts";
+import { sanitizeErrorMessage } from "../../../utils/error.ts";
 import { fetchRemoteImage } from "@/shared/network/remoteImageFetch";
 import { saveImageErrorResult, saveImageSuccessResult } from "../../imageGeneration.ts";
 
@@ -210,7 +211,9 @@ export async function handleGeminiWebImageGeneration({
           model,
           status: 502,
           startTime,
-          error: `Gemini Web generated an image but OmniRoute could not download it for b64_json conversion: ${err instanceof Error ? err.message : String(err)}`,
+          error: sanitizeErrorMessage(
+            `Gemini Web generated an image but OmniRoute could not download it for b64_json conversion: ${err instanceof Error ? err.message : String(err)}`
+          ),
           requestBody,
         });
       }

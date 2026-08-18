@@ -706,6 +706,7 @@ test("createSSEStream passthrough forwards data only after the complete SSE even
     {
       mode: "passthrough",
       sourceFormat: FORMATS.OPENAI,
+      clientResponseFormat: FORMATS.OPENAI_RESPONSES,
       provider: "openai",
       model: "responses-model",
       body: {
@@ -718,7 +719,7 @@ test("createSSEStream passthrough forwards data only after the complete SSE even
   assert.doesNotMatch(text, /^data: .*?\n\nevent:/s);
 });
 
-test("createSSEStream passthrough preserves event metadata in a single SSE event", async () => {
+test("createSSEStream passthrough strips unsupported controls without splitting metadata", async () => {
   const text = await readTransformed(
     [
       [
@@ -739,6 +740,7 @@ test("createSSEStream passthrough preserves event metadata in a single SSE event
     {
       mode: "passthrough",
       sourceFormat: FORMATS.OPENAI,
+      clientResponseFormat: FORMATS.OPENAI_RESPONSES,
       provider: "openai",
       model: "gpt-4.1-mini",
       body: {
@@ -747,9 +749,9 @@ test("createSSEStream passthrough preserves event metadata in a single SSE event
     }
   );
 
-  assert.match(text, /^: upstream-note\nid: 42\ntrace: upstream-abc\ndata: /);
-  assert.doesNotMatch(text, /^: upstream-note\n\nid: 42/s);
-  assert.doesNotMatch(text, /\ntrace: upstream-abc\n\n/s);
+  assert.doesNotMatch(text, /upstream-note|id: 42/);
+  assert.match(text, /^trace: upstream-abc\ndata: /);
+  assert.doesNotMatch(text, /^trace: upstream-abc\n\n/s);
   assert.match(text, /metadata content/);
 });
 

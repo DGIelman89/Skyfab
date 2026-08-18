@@ -171,7 +171,7 @@ test("non quota-share (priority): short 429 cooldown → waits and re-dispatches
   );
 });
 
-test("non quota-share (priority): a quota_exhausted lock drives the decision with a SHORT wait → NO wait (the reason allow-list is the PRIMARY barrier; the maxWaitMs ceiling does NOT cover this)", async () => {
+test("non quota-share (priority): a quota_exhausted lock with a SHORT wait does not redispatch", async () => {
   // THE regression guard for the two-barrier policy documented in
   // comboCooldownRetry.ts ("SECURITY — quota_exhausted must be excluded" /
   // "The small maxWaitMs ceiling is the second barrier").
@@ -218,10 +218,9 @@ test("non quota-share (priority): a quota_exhausted lock drives the decision wit
     allCombos: null,
   });
 
-  // Final status is the last target's 403 (aggregation last-wins). The security
-  // invariant is that the allow-list rejected the wait — not that a peer 429 is
-  // re-surfaced as the HTTP status.
-  assert.equal(res.status, 403, "quota_exhausted target status crystallizes; wait must not redispatch");
+  // #10501 normalizes the mixed rate-limit + auth outcome to a gateway error.
+  // The security invariant is that the allow-list rejected the wait.
+  assert.equal(res.status, 502, "heterogeneous failures should use the aggregate status");
   // Deterministic proof (no wall-clock dependency, so it cannot flake under
   // CI-runner contention): each target is dispatched EXACTLY ONCE. Had the wait
   // fired, the whole set loop would re-run — maxAttempts=2 within the 8s budget

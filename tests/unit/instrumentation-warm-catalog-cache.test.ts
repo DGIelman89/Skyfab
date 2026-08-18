@@ -72,7 +72,10 @@ let fetchCallCount = 0;
 
 function installFakeOpenRouterFetch(): void {
   fetchCallCount = 0;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (input) => {
+    if (String(input) !== "https://openrouter.ai/api/v1/models") {
+      return Response.json({});
+    }
     fetchCallCount++;
     return new Response(JSON.stringify({ data: [{ id: "test/fake-model", architecture: {} }] }), {
       status: 200,

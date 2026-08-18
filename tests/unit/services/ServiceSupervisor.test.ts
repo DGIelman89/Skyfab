@@ -40,14 +40,31 @@ db.prepare(
   `INSERT OR IGNORE INTO version_manager (tool, status, port, auto_start, auto_update, provider_expose)
    VALUES ('test-adopt', 'stopped', 29996, 0, 0, 0)`
 ).run();
+db.prepare(
+  `INSERT OR IGNORE INTO version_manager (tool, status, port, auto_start, auto_update, provider_expose)
+   VALUES ('test-adopt-pid', 'stopped', 29995, 0, 0, 0)`
+).run();
 
 const { ServiceSupervisor } = await import("../../../src/lib/services/ServiceSupervisor.ts");
 
 /** Starts a tiny HTTP health server on the given port that always returns 200. */
-function startHealthServer(port: number): http.Server {
+async function startHealthServer(port: number): Promise<http.Server> {
   const server = http.createServer((_, res) => res.writeHead(200).end("ok"));
-  server.listen(port);
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    server.once("error", onError);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", onError);
+      resolve();
+    });
+  });
   return server;
+}
+
+async function closeHealthServer(server: http.Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
 }
 
 /** Config for a service that logs "tick" every second and stays alive. */
@@ -74,7 +91,7 @@ test.after(() => {
 });
 
 test("start spawns process and captures logs in ring buffer", async () => {
-  const healthServer = startHealthServer(29999);
+  const healthServer = await startHealthServer(29999);
   const sup = new ServiceSupervisor(tickConfig("test-svc", 29999));
 
   try {
@@ -93,12 +110,12 @@ test("start spawns process and captures logs in ring buffer", async () => {
     );
   } finally {
     await sup.stop();
-    healthServer.close();
+    await closeHealthServer(healthServer);
   }
 });
 
 test("stop sends SIGTERM and waits, then SIGKILL if needed", async () => {
-  const healthServer = startHealthServer(29999);
+  const healthServer = await startHealthServer(29999);
   const sup = new ServiceSupervisor({
     ...tickConfig("test-svc", 29999),
     stopTimeoutMs: 500,
@@ -110,12 +127,12 @@ test("stop sends SIGTERM and waits, then SIGKILL if needed", async () => {
     assert.equal(status.state, "stopped");
     assert.equal(status.pid, null);
   } finally {
-    healthServer.close();
+    await closeHealthServer(healthServer);
   }
 });
 
 test("crash sets state=error and lastError (no auto-restart)", async () => {
-  const healthServer = startHealthServer(29998);
+  const healthServer = await startHealthServer(29998);
   const crashConfig = {
     ...tickConfig("test-crash", 29998),
     spawnArgs: () => ({
@@ -152,12 +169,12 @@ test("crash sets state=error and lastError (no auto-restart)", async () => {
       "supervisor must not restart after crash"
     );
   } finally {
-    healthServer.close();
+    await closeHealthServer(healthServer);
   }
 });
 
 test("restart is atomic (concurrent calls serialize)", async () => {
-  const healthServer = startHealthServer(29999);
+  const healthServer = await startHealthServer(29999);
   const sup = new ServiceSupervisor(tickConfig("test-svc", 29999));
 
   try {
@@ -174,12 +191,12 @@ test("restart is atomic (concurrent calls serialize)", async () => {
     assert.equal(final.state, "running");
   } finally {
     await sup.stop();
-    healthServer.close();
+    await closeHealthServer(healthServer);
   }
 });
 
 test("does NOT auto-restart on crash", async () => {
-  const healthServer = startHealthServer(29998);
+  const healthServer = await startHealthServer(29998);
   const crashConfig = {
     ...tickConfig("test-crash", 29998),
     spawnArgs: () => ({
@@ -205,7 +222,7 @@ test("does NOT auto-restart on crash", async () => {
       `supervisor should not auto-restart: state was "${status.state}"`
     );
   } finally {
-    healthServer.close();
+    await closeHealthServer(healthServer);
   }
 });
 
@@ -213,7 +230,7 @@ test("does NOT auto-restart on crash", async () => {
 // the port, the supervisor ADOPTS it (marks running, no child spawned) instead
 // of spawning a duplicate that would die with EADDRINUSE.
 test("#6205: probeBeforeSpawn adopts a healthy existing instance (no spawn)", async () => {
-  const healthServer = startHealthServer(29996);
+  const healthServer = await startHealthServer(29996);
   const cfg = { ...tickConfig("test-adopt", 29996), probeBeforeSpawn: true };
   const sup = new ServiceSupervisor(cfg);
 
@@ -231,7 +248,7 @@ test("#6205: probeBeforeSpawn adopts a healthy existing instance (no spawn)", as
     assert.equal(sup.getRingBuffer().snapshot().length, 0, "no logs — nothing was spawned");
   } finally {
     await sup.stop();
-    healthServer.close();
+    await closeHealthServer(healthServer);
   }
 });
 
@@ -244,8 +261,8 @@ test("#6205: probeBeforeSpawn adopts a healthy existing instance (no spawn)", as
 // healthy, running service as untrustworthy/stale. This asserts the resolved
 // pid on adoption matches the real process actually holding the port.
 test("adopted service resolves and records the real pid of the process holding the port", async () => {
-  const healthServer = startHealthServer(29996);
-  const cfg = { ...tickConfig("test-adopt", 29996), probeBeforeSpawn: true };
+  const healthServer = await startHealthServer(29995);
+  const cfg = { ...tickConfig("test-adopt-pid", 29995), probeBeforeSpawn: true };
   const sup = new ServiceSupervisor(cfg);
 
   try {
@@ -259,6 +276,6 @@ test("adopted service resolves and records the real pid of the process holding t
     assert.equal(sup.getStatus().pid, process.pid, "in-memory supervisor state also has the pid");
   } finally {
     await sup.stop();
-    healthServer.close();
+    await closeHealthServer(healthServer);
   }
 });

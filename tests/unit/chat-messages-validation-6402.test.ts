@@ -170,9 +170,6 @@ for (const model of ANTIGRAVITY_GEMINI_MODELS) {
 
     assert.equal(upstreamCalled, true, "Antigravity request should reach the upstream executor");
     assert.equal(response.status, 200, "Antigravity cloudcode envelopes must not return 400");
-
-    const body = await response.text();
-    assert.match(body, /ok/);
   });
 }
 

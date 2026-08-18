@@ -36,7 +36,8 @@ const {
   setBackgroundDegradationConfig,
   resetStats: resetBackgroundStats,
 } = await import("../../open-sse/services/backgroundTaskDetector.ts");
-const { getCallLogs, getCallLogById } = await import("../../src/lib/usage/callLogs.ts");
+const { getCallLogs, getCallLogById, waitForCallLogSaves } =
+  await import("../../src/lib/usage/callLogs.ts");
 const {
   handleChatCore,
   shouldUseNativeCodexPassthrough,
@@ -250,6 +251,7 @@ function collectTextBlocks(messages) {
 }
 
 async function resetStorage() {
+  assert.equal(await waitForCallLogSaves(30_000), true, "pending call logs should drain");
   clearUpstreamProxyConfigCache();
   resetPayloadRulesConfigForTests();
   register(FORMATS.OPENAI_RESPONSES, FORMATS.OPENAI, originalResponsesToOpenAI, null);
@@ -2597,7 +2599,14 @@ test("chatCore injects progress events into streaming responses when requested",
   assert.equal(result.response.headers.get("X-OmniRoute-Progress"), "enabled");
   assert.match(streamText, /event: progress/);
 });
-test("chatCore emits final SSE metadata comments before [DONE] on streaming responses", async () => {
+test("chatCore emits final SSE metadata comments before [DONE] on streaming responses", async (t) => {
+  const previousSseComments = process.env.OMNIROUTE_SSE_COMMENTS;
+  process.env.OMNIROUTE_SSE_COMMENTS = "on";
+  t.after(() => {
+    if (previousSseComments === undefined) delete process.env.OMNIROUTE_SSE_COMMENTS;
+    else process.env.OMNIROUTE_SSE_COMMENTS = previousSseComments;
+  });
+
   const { result } = await invokeChatCore({
     provider: "openai",
     model: "gpt-4o-mini",

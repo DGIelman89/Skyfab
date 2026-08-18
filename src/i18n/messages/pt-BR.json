@@ -7760,6 +7760,10 @@
         "label": "Ponytail (lazy senior dev)",
         "description": "Lazy senior-dev discipline: climb the YAGNI ladder, fix root cause, smallest working diff."
       },
+      "i-have-adhd": {
+        "label": "Tenho TDAH (ação primeiro)",
+        "description": "Resposta orientada à ação: comece pela próxima ação, numere as etapas, dê um próximo passo concreto e dispense a introdução."
+      },
       "terse-cjk": {
         "label": "CJK conciso (文言)",
         "description": "Estilo ultra-conciso em chinês clássico (disponível apenas para chinês)."
@@ -8040,6 +8044,10 @@
     "disableSessionStickinessDesc": "Combos round-robin e aleatórios alternam para uma conexão diferente a cada requisição, em vez de fixar toda a conversa em uma conexão pelo hash da primeira mensagem. Deixe desativado para preservar acertos de cache de prompt em conversas com múltiplos turnos. Sobrescritas por combo têm prioridade.",
     "promptCacheAffinity": "Prompt-cache locality routing",
     "promptCacheAffinityDesc": "Prefer the same provider account for matching prompt-cache keys while preserving health and quota failover.",
+    "reasoningTokenBuffer": "Buffer de tokens de raciocínio",
+    "reasoningTokenBufferDesc": "Permite que o roteamento de combos adicione margem a max_tokens apenas para modelos de raciocínio conhecidos quando o buffer completo couber em um limite de saída conhecido.",
+    "zeroLatencyOptimizations": "Otimizações de latência zero",
+    "zeroLatencyOptimizationsDesc": "Ative hedging, desvios preditivos de TTFT e compressão proativa de fallback. Deixe desativado para impedir que esses recursos de latência disputem alvos ou comprimam solicitações de fallback.",
     "credentialRedaction": "Redação de Credenciais",
     "credentialRedactionDesc": "Redija chaves de API, tokens e segredos do contexto enviado para provedores e das respostas.",
     "enableCredentialRedaction": "Ativar a ocultação de credenciais",
