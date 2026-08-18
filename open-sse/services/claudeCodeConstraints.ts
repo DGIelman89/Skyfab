@@ -130,18 +130,15 @@ export function ensureCacheControlOnLastUserMessage(body: Record<string, unknown
   if (!Array.isArray(messages) || messages.length === 0) return;
 
   const system = body.system as Array<Record<string, unknown>> | undefined;
-  const systemCacheControlCount = Array.isArray(system)
+  let cacheControlCount = Array.isArray(system)
     ? system.filter((block) => block.cache_control).length
     : 0;
 
   for (const message of messages) {
     const content = message.content as Array<Record<string, unknown>> | undefined;
-    if (Array.isArray(content) && content.some((block) => block.cache_control)) {
-      return;
-    }
+    if (!Array.isArray(content)) continue;
+    cacheControlCount += content.filter((block) => block.cache_control).length;
   }
-
-  if (systemCacheControlCount >= MAX_CACHE_CONTROL_BLOCKS) return;
 
   // Find the last user message
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -149,7 +146,7 @@ export function ensureCacheControlOnLastUserMessage(body: Record<string, unknown
       const content = messages[i].content;
       if (Array.isArray(content) && content.length > 0) {
         const lastBlock = content[content.length - 1] as Record<string, unknown>;
-        if (!lastBlock.cache_control) {
+        if (!lastBlock.cache_control && cacheControlCount < MAX_CACHE_CONTROL_BLOCKS) {
           lastBlock.cache_control = { type: "ephemeral" };
         }
       }

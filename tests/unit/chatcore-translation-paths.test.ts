@@ -1089,7 +1089,10 @@ test("chatCore preserves Opus 5 mid-conversation system cache breakpoints", asyn
     call.body.system.some((block: { text?: string }) => block.text === "compact continuation"),
     false
   );
-  assert.equal(call.body.messages[3].content[0].cache_control, undefined);
+  assert.deepEqual(call.body.messages[3].content[0].cache_control, {
+    type: "ephemeral",
+    ttl: "1h",
+  });
 });
 test("chatCore keeps Claude normalization for non-Claude-Code Claude passthrough", async () => {
   const { call, result } = await invokeChatCore({
@@ -1267,7 +1270,7 @@ test("chatCore preserves cache_control automatically for Claude Code single-mode
   // base.ts executor explicitly strips cache_control from tools for Claude Code clients
   assert.equal(call.body.tools[0].cache_control, undefined);
 });
-test("chatCore supplements a missing message cache breakpoint for native Claude Code requests", async () => {
+test("chatCore advances a message cache breakpoint for native Claude Code requests", async () => {
   await settingsDb.updateSettings({ alwaysPreserveClientCache: "auto" });
   invalidateCacheControlSettingsCache();
 
@@ -1292,7 +1295,16 @@ test("chatCore supplements a missing message cache breakpoint for native Claude 
         },
       ],
       messages: [
-        { role: "user", content: [{ type: "text", text: "first turn" }] },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "first turn",
+              cache_control: { type: "ephemeral" },
+            },
+          ],
+        },
         { role: "assistant", content: [{ type: "text", text: "first response" }] },
         { role: "user", content: [{ type: "text", text: "latest turn" }] },
       ],
