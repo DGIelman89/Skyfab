@@ -301,6 +301,10 @@ export function normalizeCursorModelId(modelId: string): string {
 // {id:"reasoning", value:<suffix>}. "-fast"/"-thinking" are separate toggles
 // (already handled elsewhere / not covered by this suffix set) and must not
 // be misread as an effort value.
+//
+// Grok (`cursor-grok-*` / legacy `grok-*`) follows the Claude-style `effort`
+// parameter. Without the split, ids like `cursor-grok-4.5-high` return empty
+// turns (same symptom as #7289). Combined `-high-fast` is supported.
 const CURSOR_EFFORT_SUFFIXES = ["low", "medium", "high", "xhigh", "max"] as const;
 
 /**
@@ -330,6 +334,40 @@ function splitCursorEffortSuffix(
 }
 
 /**
+ * Grok family: strip optional `-fast`, then effort suffix → ModelParameters.
+ * Prefer `cursor-grok-` over bare `grok-` so `cursor-grok-*` is not mis-matched.
+ */
+function resolveGrokRequestedModel(
+  normalized: string
+): { modelId: string; parameters: Array<{ id: string; value: string }> } | null {
+  const prefix = normalized.startsWith("cursor-grok-")
+    ? "cursor-grok-"
+    : normalized.startsWith("grok-")
+      ? "grok-"
+      : null;
+  if (!prefix) return null;
+
+  let id = normalized;
+  const extraParams: Array<{ id: string; value: string }> = [];
+  if (id.endsWith("-fast") && id.length > prefix.length + "-fast".length) {
+    id = id.slice(0, -"-fast".length);
+    extraParams.push({ id: "fast", value: "true" });
+  }
+
+  const effortSplit = splitCursorEffortSuffix(id, prefix, "effort");
+  if (effortSplit) {
+    return {
+      modelId: effortSplit.modelId,
+      parameters: [...effortSplit.parameters, ...extraParams],
+    };
+  }
+  if (extraParams.length > 0) {
+    return { modelId: id, parameters: extraParams };
+  }
+  return null;
+}
+
+/**
  * cursor-agent rewrites model ids before putting them on the wire:
  *   "auto"                 → RequestedModel { model_id: "default" }
  *   "auto-cost"            → RequestedModel { model_id: "default",
@@ -340,6 +378,8 @@ function splitCursorEffortSuffix(
  *                                             parameters: [{id: "effort", value: "high"}] }
  *   "gpt-5.5-high"         → RequestedModel { model_id: "gpt-5.5",
  *                                             parameters: [{id: "reasoning", value: "high"}] }
+ *   "cursor-grok-4.5-high" → RequestedModel { model_id: "cursor-grok-4.5",
+ *                                             parameters: [{id: "effort", value: "high"}] }
  *
  * Other ids are passed through verbatim after spelling-variant normalization
  * (see normalizeCursorModelId).
@@ -397,6 +437,10 @@ export function resolveRequestedModel(
       modelId: normalized.slice(0, -"-fast".length),
       parameters: [{ id: "fast", value: "true" }],
     };
+  }
+  const grokSplit = resolveGrokRequestedModel(normalized);
+  if (grokSplit) {
+    return grokSplit;
   }
   const claudeSplit = splitCursorEffortSuffix(normalized, "claude-", "effort");
   if (claudeSplit) {
