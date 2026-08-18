@@ -1,0 +1,1 @@
+- **fix(files):** Validate the file-list `limit` query parameter and return a structured 400 response for invalid values ([#10673](https://github.com/diegosouzapw/OmniRoute/pull/10673)) — thanks @pacocartones
