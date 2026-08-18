@@ -36,7 +36,8 @@ const {
   setBackgroundDegradationConfig,
   resetStats: resetBackgroundStats,
 } = await import("../../open-sse/services/backgroundTaskDetector.ts");
-const { getCallLogs, getCallLogById } = await import("../../src/lib/usage/callLogs.ts");
+const { getCallLogs, getCallLogById, waitForCallLogSaves } =
+  await import("../../src/lib/usage/callLogs.ts");
 const {
   handleChatCore,
   shouldUseNativeCodexPassthrough,
@@ -55,6 +56,7 @@ const originalSetTimeout = globalThis.setTimeout;
 const originalBackgroundConfig = getBackgroundDegradationConfig();
 const originalCallLogPipelineCaptureStreamChunks =
   process.env.CALL_LOG_PIPELINE_CAPTURE_STREAM_CHUNKS;
+const originalSseComments = process.env.OMNIROUTE_SSE_COMMENTS;
 function noopLog() {
   return {
     debug() {},
@@ -69,6 +71,13 @@ function restorePipelineCaptureEnv() {
   } else {
     process.env.CALL_LOG_PIPELINE_CAPTURE_STREAM_CHUNKS =
       originalCallLogPipelineCaptureStreamChunks;
+  }
+}
+function restoreSseCommentsEnv() {
+  if (originalSseComments === undefined) {
+    delete process.env.OMNIROUTE_SSE_COMMENTS;
+  } else {
+    process.env.OMNIROUTE_SSE_COMMENTS = originalSseComments;
   }
 }
 function toPlainHeaders(headers) {
@@ -286,6 +295,7 @@ async function flushAsyncSideEffects() {
 }
 
 async function getLatestCallLog() {
+  await waitForCallLogSaves(5000);
   const rows = await getCallLogs({ limit: 5 });
   if (!Array.isArray(rows) || rows.length === 0) return null;
   return getCallLogById(rows[0].id);
@@ -373,6 +383,7 @@ async function invokeChatCore({
 test.afterEach(async () => {
   globalThis.fetch = originalFetch;
   restorePipelineCaptureEnv();
+  restoreSseCommentsEnv();
   clearPendingRequests();
   resetAccountSemaphores();
   await flushAsyncSideEffects();
@@ -382,6 +393,7 @@ test.afterEach(async () => {
 test.after(async () => {
   globalThis.fetch = originalFetch;
   restorePipelineCaptureEnv();
+  restoreSseCommentsEnv();
   clearPendingRequests();
   resetAccountSemaphores();
   await flushAsyncSideEffects();
@@ -2598,6 +2610,7 @@ test("chatCore injects progress events into streaming responses when requested",
   assert.match(streamText, /event: progress/);
 });
 test("chatCore emits final SSE metadata comments before [DONE] on streaming responses", async () => {
+  process.env.OMNIROUTE_SSE_COMMENTS = "on";
   const { result } = await invokeChatCore({
     provider: "openai",
     model: "gpt-4o-mini",
